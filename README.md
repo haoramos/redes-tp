@@ -1,5 +1,8 @@
 # Projeto MyFTP com Python e Interface Gráfica
 
+[!IMPORTANT]
+O GUI implementado foi testado somente no Linux Fedora 41, utilizando o sistema de janelas do X.Org X11, as minhas tentativas de usar o GNOME falharam então tive que mudar.
+
 Este projeto implementa um protocolo simples de transferência de arquivos (FTP) chamado MyFTP, utilizando sockets UDP em Python. O servidor é multi-cliente (usando threads) e o cliente possui uma interface gráfica (GUI) construída com Tkinter.
 
 ## Funcionalidades Implementadas
