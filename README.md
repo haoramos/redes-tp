@@ -8,16 +8,19 @@ Este projeto implementa um protocolo simples de transferência de arquivos (FTP)
 * **Confiabilidade**: Implementa um sistema de numeração de pacotes e ACKs (Agradecimentos) para garantir a entrega. Em caso de perda, o pacote é reenviado após um timeout.
 * **Servidor Multi-Cliente**: O servidor usa threads para atender múltiplos clientes simultaneamente.
 * **Interface Gráfica**: O cliente possui uma GUI intuitiva para interagir com o servidor.
-* **Comandos Suportados**:
-    * `login <usuário> <senha>`
-    * `put <arquivo>`
-    * `get <arquivo>`
-    * `ls`
-    * `cd <pasta>`
-    * `cd..`
-    * `mkdir <pasta>`
-    * `rmdir <pasta>`
+* **Comandos Suportados**: Uma lista completa de comandos de manipulação de arquivos e diretórios.
 * **Segurança**: O servidor restringe o acesso dos clientes a um diretório raiz específico (`server_files`), impedindo o acesso a outras partes do sistema de arquivos.
+
+## Comandos Suportados
+
+* `login <usuário> <senha>`: Autentica o cliente no servidor. É o primeiro comando necessário para obter acesso.
+* `ls`: Lista todos os arquivos e pastas no diretório atual do servidor.
+* `cd <pasta>`: Entra em uma subpasta no servidor, alterando o diretório atual.
+* `cd..`: Volta um nível na árvore de diretórios do servidor.
+* `mkdir <pasta>`: Cria uma nova pasta no diretório atual do servidor.
+* `rmdir <pasta>`: Remove uma pasta vazia do diretório atual do servidor.
+* `get <arquivo>`: Baixa um arquivo do diretório atual do servidor para a pasta local do cliente.
+* `put <arquivo>`: Envia um arquivo da pasta local do cliente para o diretório atual do servidor.
 
 ## Como Executar
 
@@ -29,10 +32,10 @@ Nenhuma biblioteca externa é necessária, pois `socket`, `threading`, `os`, `pi
 ### 1. Preparar o Ambiente do Servidor
 
 1.  Crie uma pasta para o seu projeto.
-2.  Dentro dela, salve os arquivos `server.py` e `client_gui.py`.
+2.  Dentro dela, salve os arquivos `server.py` e `client_gui.py` que foram fornecidos.
 3.  Crie uma subpasta chamada `server_files`. **É aqui que todos os arquivos e pastas do servidor serão armazenados.**
     ```
-    meu_projeto/
+    redes-tp/
     ├── server.py
     ├── client_gui.py
     └── server_files/
