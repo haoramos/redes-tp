@@ -8,7 +8,7 @@ from pathlib import Path
 
 HOST = '127.0.0.1'
 PORT = 7891
-BUFFER_SIZE = 4096
+BUFFER_SIZE = 1024
 SERVER_FILES_DIR = "server_files"
 RETRY_TIMEOUT = 1.0 
 MAX_RETRIES = 5     
