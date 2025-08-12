@@ -1,4 +1,4 @@
-# client_gui.py (FINAL - Com desativação de widgets de login)
+# client_gui.py (FINAL - Com proteção de sobrescrita para GET e PUT)
 
 import tkinter as tk
 from tkinter import scrolledtext, filedialog, messagebox
@@ -10,7 +10,7 @@ import queue
 from pathlib import Path
 
 # --- CONFIGURAÇÕES DO CLIENTE ---
-BUFFER_SIZE = 4096 
+BUFFER_SIZE = 1024
 TIMEOUT = 5.0
 RETRY_TIMEOUT = 1.0 
 MAX_RETRIES = 5     
@@ -31,10 +31,13 @@ class MyFTPClient(tk.Tk):
         self.server_seq = 0
         
         self.queue = queue.Queue()
+        # Estado para GET
         self.receiving_file_name = None
         self.received_file_data = bytearray()
+        # Estado para PUT
         self.put_ack_event = threading.Event()
         self.put_operation_active = False
+        self.put_transfer_success = False
         self.last_ack_received = -1
 
         self.create_widgets()
@@ -87,7 +90,6 @@ class MyFTPClient(tk.Tk):
         if self.is_connected:
             self.log("Você já está conectado.")
             return
-        
         ip = self.ip_entry.get()
         try: port = int(self.port_entry.get())
         except ValueError: self.log("Erro: A porta deve ser um número.")
@@ -97,10 +99,7 @@ class MyFTPClient(tk.Tk):
         if not user or not password:
             self.log("Erro: Usuário e senha não podem ser vazios.")
             return
-            
-        # --- MELHORIA: Desabilita o botão para evitar cliques duplos ---
         self.connect_button.config(state="disabled", text="Conectando...")
-
         try:
             self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
             self.sock.settimeout(TIMEOUT)
@@ -111,7 +110,7 @@ class MyFTPClient(tk.Tk):
             self.after(100, self.process_queue)
         except Exception as e:
             self.log(f"Erro ao conectar: {e}")
-            self.connect_button.config(state="normal", text="Conectar / Login") # Reabilita se der erro
+            self.connect_button.config(state="normal", text="Conectar / Login")
 
     def send_packet(self, pkt_type, payload=b'', ack_seq=None):
         if not self.sock: self.log("Erro: Não conectado.")
@@ -142,11 +141,11 @@ class MyFTPClient(tk.Tk):
                 
                 if pkt_type == 'ACK':
                     if self.put_operation_active:
+                        self.put_transfer_success = True
                         self.last_ack_received = packet.get('ack_seq', -1)
                         self.put_ack_event.set()
                     else:
-                        # --- MELHORIA: Lógica para desabilitar campos no login bem-sucedido ---
-                        if not self.is_connected: # Identifica que este é o ACK do login
+                        if not self.is_connected:
                             self.is_connected = True
                             self.ip_entry.config(state="disabled")
                             self.port_entry.config(state="disabled")
@@ -155,7 +154,6 @@ class MyFTPClient(tk.Tk):
                             self.connect_button.config(text="Conectado")
                         if payload: self.log(f"Servidor: {payload.decode('utf-8', errors='ignore')}")
                 elif pkt_type == 'ERROR':
-                    # Reabilita o botão se o login falhar
                     if "Usuário ou senha incorretos" in payload.decode('utf-8', errors='ignore'):
                         self.connect_button.config(state="normal", text="Conectar / Login")
                     self.log(f"ERRO do Servidor: {payload.decode('utf-8', errors='ignore')}")
@@ -163,6 +161,9 @@ class MyFTPClient(tk.Tk):
                         self.log(f"Falha ao receber '{self.receiving_file_name}'.")
                         self.receiving_file_name = None
                         self.received_file_data.clear()
+                    if self.put_operation_active:
+                        self.put_transfer_success = False
+                        self.put_ack_event.set() # Libera a thread de 'put' para que ela veja o erro
                 elif pkt_type == 'DATA':
                     if self.receiving_file_name:
                         self.received_file_data.extend(payload)
@@ -184,9 +185,7 @@ class MyFTPClient(tk.Tk):
     def send_command_event(self, event): self.send_command()
 
     def send_command(self):
-        if not self.is_connected:
-            self.log("Faça o login primeiro.")
-            return
+        if not self.is_connected: self.log("Faça o login primeiro.")
         command = self.cmd_entry.get()
         if not command: return
         self.log(f"> {command}")
@@ -199,6 +198,13 @@ class MyFTPClient(tk.Tk):
         else: self.send_packet("COMMAND", payload=command.encode('utf-8'))
 
     def handle_get(self, filename):
+        # --- MELHORIA DE SEGURANÇA AQUI ---
+        filepath = Path(filename)
+        if filepath.is_file():
+            self.log(f"Erro: Arquivo '{filename}' já existe no diretório local. Exclusão não permitida.")
+            return
+        # ------------------------------------
+
         self.log(f"Requisitando arquivo '{filename}'...")
         self.received_file_data.clear()
         self.receiving_file_name = filename
@@ -212,13 +218,21 @@ class MyFTPClient(tk.Tk):
             return
 
         self.put_operation_active = True
+        self.put_transfer_success = False
         self.log(f"Iniciando envio de '{filename}'...")
         
         try:
             put_command_seq = self.send_packet("COMMAND", payload=f"put {filename}".encode('utf-8'))
             self.put_ack_event.clear()
             if not self.put_ack_event.wait(timeout=RETRY_TIMEOUT * 2):
-                self.log("Erro: Servidor não confirmou o início do upload.")
+                self.log("Erro: Servidor não respondeu ao comando de upload.")
+                self.put_operation_active = False
+                return
+            
+            # Se o evento foi setado, verifica se foi por um ACK (sucesso) ou ERROR (falha)
+            if not self.put_transfer_success:
+                self.log("Upload cancelado pelo servidor (arquivo pode já existir).")
+                self.put_operation_active = False
                 return
 
             with open(filepath, 'rb') as f:
@@ -236,6 +250,7 @@ class MyFTPClient(tk.Tk):
                         self.log(f"Timeout esperando ACK para pacote de dados. Tentativa {i+1}/{MAX_RETRIES}")
                     if not ack_ok:
                         self.log("Falha no upload: Servidor parou de responder.")
+                        self.put_operation_active = False
                         return
 
             fin_seq = self.send_packet("FIN")
@@ -248,7 +263,7 @@ class MyFTPClient(tk.Tk):
             self.log(f"Erro durante o upload: {e}")
         finally:
             self.put_operation_active = False
-
+            
     def on_closing(self):
         if self.sock:
             self.sock.close()

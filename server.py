@@ -63,7 +63,7 @@ class ClientHandler:
             elif not self.is_logged_in:
                 self.send_error("Erro: Você precisa fazer login primeiro.")
             else:
-                 self.send_error("Tipo de pacote ou estado inválido.")
+                 self.send_error(f"Tipo de pacote ou estado inválido: {packet.get('type')}")
         except Exception as e:
             log(f"Erro ao processar pacote de {self.client_address}: {e}")
 
@@ -164,13 +164,17 @@ class ClientHandler:
 
     def handle_put_setup(self, args):
         if not args: return self.send_error("Sintaxe: put <arquivo>")
-        self.receiving_file_path = self.current_path / Path(args[0]).name
+        file_path = self.current_path / Path(args[0]).name
+        if file_path.exists():
+            return self.send_error("Erro: Arquivo já existe no servidor. Impossível sobrescrever.")
+        self.receiving_file_path = file_path
         self.receiving_file_handle = open(self.receiving_file_path, 'wb')
         log(f"Pronto para receber arquivo '{args[0]}' de {self.client_address}")
         self.send_ack(self.client_seq)
 
     def handle_put_data(self, packet):
-        if not hasattr(self, 'receiving_file_handle') or self.receiving_file_handle.closed: return
+        if not hasattr(self, 'receiving_file_handle') or self.receiving_file_handle.closed:
+            return self.send_error("Erro: Servidor não está em modo de recebimento de arquivo.")
         if packet['type'] == 'DATA':
             self.receiving_file_handle.write(packet['payload'])
             self.send_ack(packet['seq'])
