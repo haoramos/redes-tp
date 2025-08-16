@@ -24,17 +24,18 @@ class MyFTPClient(tk.Tk):
         self.default_font = tkFont.Font(family="Helvetica", size=11)
         self.bold_font = tkFont.Font(family="Helvetica", size=11, weight="bold")
         
-        self.sock = None
-        self.server_address = None
-        self.is_connected = False
-        self.client_seq = 0
+        self.sock = None #socket UDP do cliente
+        self.server_address = None #Endereco e porta do servidor
+        self.is_connected = False #indica se o login foi bem sucedido
+        self.client_seq = 0 
         self.server_seq = 0
         
-        self.queue = queue.Queue()
+        self.queue = queue.Queue() #fila para armazenar pacotes recebidos pela thread de escuta. Isso separa a logica de rede da logica da GUI.
         # Estado para GET
         self.receiving_file_name = None
         self.received_file_data = bytearray()
         # Estado para PUT
+        #Um objeto threading.Event para sincronizar a thread principal (GUI) com a thread de put, garantindo que o cliente não envie o próximo chunk antes de receber o ACK.
         self.put_ack_event = threading.Event()
         self.put_operation_active = False
         self.put_transfer_success = False
@@ -86,6 +87,7 @@ class MyFTPClient(tk.Tk):
         self.log_console.config(state='disabled')
         self.log_console.see(tk.END)
 
+    #Chamada quando o botão "Conectar / Login" é clicado. Ele cria o socket, inicia a thread de escuta (listen_for_messages) e envia o comando login para o servidor.
     def connect_login(self):
         if self.is_connected:
             self.log("Você já está conectado.")
@@ -123,6 +125,7 @@ class MyFTPClient(tk.Tk):
     def send_ack(self, ack_seq):
         self.send_packet("ACK", ack_seq=ack_seq)
 
+    #Uma thread em segundo plano que fica em um loop infinito, escutando por pacotes do servidor. Qualquer pacote recebido é colocado em uma queue para ser processado pela thread principal
     def listen_for_messages(self):
         while self.sock:
             try:
@@ -131,6 +134,7 @@ class MyFTPClient(tk.Tk):
             except (socket.timeout, ConnectionResetError, OSError): continue
             except Exception as e: self.log(f"Erro de rede: {e}")
 
+    #Chamada periodicamente pelo tkinter (self.after). Ela retira os pacotes da fila (queue) e os processa:
     def process_queue(self):
         try:
             while not self.queue.empty():
@@ -184,6 +188,7 @@ class MyFTPClient(tk.Tk):
 
     def send_command_event(self, event): self.send_command()
 
+    #Chamada quando o botão "Enviar Comando" é clicado. Ela pega o comando do campo de texto. Se o comando for put ou get, ele o trata em uma thread separada para não travar a GUI. Caso contrário, envia o comando como um pacote COMMAND.
     def send_command(self):
         if not self.is_connected: self.log("Faça o login primeiro.")
         command = self.cmd_entry.get()
@@ -197,6 +202,7 @@ class MyFTPClient(tk.Tk):
         elif cmd == 'get' and args: self.handle_get(args[0])
         else: self.send_packet("COMMAND", payload=command.encode('utf-8'))
 
+    #Trata o comando get. Ele primeiro verifica se o arquivo já existe localmente para evitar sobrescrita. Se não, ele envia o comando get ao servidor e prepara o estado do cliente para receber o arquivo.
     def handle_get(self, filename):
         # --- MELHORIA DE SEGURANÇA AQUI ---
         filepath = Path(filename)
@@ -211,6 +217,7 @@ class MyFTPClient(tk.Tk):
         command = f"get {filename}"
         self.send_packet("COMMAND", payload=command.encode('utf-8'))
 
+    #Trata o comando put em uma thread separada. Similar ao handle_get do servidor, ele implementa a lógica de retransmissão confiável. Primeiro, ele envia um comando put e espera um ACK de confirmação do servidor. Se o ACK for recebido, ele começa a ler o arquivo local em pedaços, enviando cada pedaço em um pacote DATA e esperando um ACK para cada um. Ao final, envia um pacote FIN.
     def handle_put(self, filename):
         filepath = Path(filename)
         if not filepath.is_file():
